@@ -1,0 +1,13 @@
+# Build output
+build/
+build-*/
+cmake-build-*/
+
+# Editor / OS files
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Original assignment PDF (full text is in ASSIGNMENT.md)
+*.pdf

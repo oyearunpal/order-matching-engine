@@ -3,7 +3,7 @@
 A single-instrument limit order book with price-time priority, written in C++20 with no third-party dependencies.
 It reads `AddOrderRequest` / `CancelOrderRequest` messages from stdin, matches them, and writes `TradeEvent`, `OrderFullyFilled` and `OrderPartiallyFilled` messages to stdout. Rejected input is reported on stderr and never stops processing.
 
-The original brief is in [ASSIGNMENT.md](ASSIGNMENT.md). The design discussion is in [PLAN.md](PLAN.md), and an alternative design kept for later comparison is in [PLAN_TEMPLATED_BOOKSIDE.md](PLAN_TEMPLATED_BOOKSIDE.md).
+The original brief is in [ASSIGNMENT.md](ASSIGNMENT.md). The design discussion is in [PLAN.md](PLAN.md).
 
 ---
 
@@ -182,9 +182,7 @@ The production enhancements below target both of these.
 ### Trade-offs
 
 - **`std::map` for price levels vs. a flat array indexed by price.** The map handles any price with no configuration and keeps the code small. The cost is a node allocation per new level and pointer-chasing.
-- **Same-type maps for both sides vs. a templated `BookSide<Side>`.**
-  - Same-type maps let `Order` store a level iterator, so an emptied level is never searched for by price. The cost is the `prev(end())` asymmetry on the bid side.
-  - The templated version is more symmetric, but needs one O(log L) search by price when a cancel empties a level. It is written up in `PLAN_TEMPLATED_BOOKSIDE.md` to be built and compared later.
+- **Same map type for both sides.** It lets `Order` store a level iterator, so an emptied level is never searched for by price. The cost is the `prev(end())` asymmetry on the bid side.
 - **Template sink vs. a virtual interface.** Event calls are inlined, at the price of `OrderBook` being a header-only template. Swapping the sink at runtime is never needed.
 - **Node-based `std::unordered_map`.** Its stable node addresses are what let it own the orders. The cost is one heap allocation per order and a pointer hop per lookup.
 - **The hash map owns orders vs. the level owning them.** One allocation per order instead of two, for example with a `std::list` per level.

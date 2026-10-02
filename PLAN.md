@@ -59,7 +59,6 @@ tools/
   - Best ask is `asks_.begin()`; best bid is `std::prev(bids_.end())`.
   - Using one type for both sides means every `Order` can store a `LevelMap::iterator` to its level, valid on either side. An emptied level is then erased with `erase(iterator)`, with no lookup by price.
   - Side-specific logic (where the best price is, and the crossing test buy ≥ ask / sell ≤ bid) lives in small private helpers in `OrderBook`, so the matching loop itself stays the same for both sides.
-  - Alternative design to build later and compare: a templated `BookSide<Side>`, see `PLAN_TEMPLATED_BOOKSIDE.md`.
 - `PriceLevel` is an intrusive doubly-linked FIFO with head, tail and total quantity.
   - Append at the tail, match from the head, and unlink anywhere in O(1).
 - **Ownership: the index owns each `Order`, and the price level only points at it.**
@@ -145,7 +144,7 @@ This reproduces the spec example exactly. The aggressive partial message (`4,100
 - Measured numbers from `bench`.
 - Trade-offs:
   - `std::map` vs. a flat array indexed by price ticks
-  - one map type for both sides (an iterator can be stored in `Order`, so no lookup is needed when a level is removed) vs. a templated `BookSide<Side>` (symmetric code; costs one lookup by price when a cancel empties a level). See `PLAN_TEMPLATED_BOOKSIDE.md`.
+  - one map type for both sides: an iterator can be stored in `Order`, so no lookup is needed when a level is removed
   - the template sink: inlined event calls in exchange for a header-only `OrderBook`
   - the node-based hash map
   - map-owns/level-points ownership vs. level-owns (above). The take-home still pays one allocation per order; production removes it.

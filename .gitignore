@@ -11,3 +11,6 @@ cmake-build-*/
 
 # Original assignment PDF (full text is in ASSIGNMENT.md)
 *.pdf
+
+# Symlink to build/compile_commands.json for IDE tooling
+compile_commands.json

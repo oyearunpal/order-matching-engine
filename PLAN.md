@@ -171,3 +171,14 @@ This reproduces the spec example exactly. The aggressive partial message (`4,100
 3. Pipe the spec example into the app: `./build/matching_engine < tests/data/spec_example.in`. Stdout must be byte-identical to the 6 expected lines, and stderr must show the BADMESSAGE error.
 4. Rebuild with `-DENABLE_SANITIZERS=ON` and rerun ctest. Then run `gen_orders --garbage` (1M lines) through the app and confirm there are no sanitizer reports and no crash.
 5. Run `./build/bench` and put the results in the README.
+
+## Implementation notes (differences from the plan above)
+- **`Order` and `PriceLevel` share `order.hpp`.** They depend on each other: `Order` stores a `LevelMap::iterator`, and `PriceLevel`'s methods dereference `Order`. So `price_level.hpp` was folded into `order.hpp`.
+- **`PriceLevel` holds only head and tail.** The planned aggregate quantity wasn't needed for matching, and summing uint64 quantities could overflow.
+- **`csv_event_writer.hpp` is header-only**, so its calls inline into the matching loop like the other sinks. There is no `csv_event_writer.cpp`.
+- **New `session.hpp` / `session.cpp`.** The read-parse-dispatch-log loop moved out of `main.cpp` into `runSession(istream&, ostream&, ostream&)`, so `tests/test_session.cpp` can test the full pipeline on string streams. `main.cpp` is now about 10 lines.
+- **Line reading is capped at 1024 characters.** Longer lines are skipped without being buffered, so huge or binary input can't exhaust memory.
+- **`AddResult::InvalidOrder` was added** (zero quantity or non-positive price), so the book's API rejects bad input on its own and doesn't rely on the parser.
+- **Trailing zeros past 2 decimals are accepted**, e.g. `1.500`. Only real sub-cent precision is rejected.
+- **The e2e tests also compare stderr** when a `<case>.err` file exists.
+- **`tools/order_flow.hpp` is one seeded generator shared** by `gen_orders`, `bench` and the randomized test.

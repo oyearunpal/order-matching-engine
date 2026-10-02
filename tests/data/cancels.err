@@ -1,0 +1,4 @@
+error: line 8: cancel for unknown order id 4
+error: line 9: cancel for unknown order id 999
+error: line 11: cancel for unknown order id 3
+error: line 13: cancel for unknown order id 5

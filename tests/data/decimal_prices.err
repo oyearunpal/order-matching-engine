@@ -1,0 +1,1 @@
+error: line 7: invalid price '100.001': expected a positive number with at most 2 decimal places

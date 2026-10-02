@@ -7,8 +7,22 @@ It reads `AddOrderRequest` / `CancelOrderRequest` messages from stdin, matches t
 
 ## Build and run
 
-**Requirements:** Linux, CMake ≥ 3.20, and a C++20 compiler.
-Tested with GCC 16 and with Clang 14 (using the GCC 11 standard library).
+**Requirements**
+
+| Tool | Minimum version | Tested with |
+|---|---|---|
+| Linux | any recent distribution | Ubuntu 22.04 |
+| C++20 compiler | GCC 10 or Clang 12 | GCC 11, GCC 16, Clang 14 (with the GCC 11 standard library) |
+| CMake | 3.20 | 3.22 |
+
+No third-party libraries are needed. To install the tools:
+
+```bash
+sudo apt install g++ cmake        # Ubuntu 22.04+ / Debian 12+
+sudo dnf install gcc-c++ cmake    # Fedora / RHEL 9+
+```
+
+**Build**
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release

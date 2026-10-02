@@ -9,16 +9,16 @@
 #include <utility>
 #include <vector>
 
-#include "matching/event_sink.hpp"
-#include "matching/messages.hpp"
-#include "matching/order.hpp"
+#include "event_sink.hpp"
+#include "messages.hpp"
+#include "order.hpp"
 
 namespace matching {
 
 enum class AddResult {
     Accepted,      // matched and/or rested; events (if any) were sent to the sink
     DuplicateId,   // an order with this id is still live in the book
-    InvalidOrder,  // zero quantity or non-positive price
+    InvalidOrder,  // zero quantity or zero price
 };
 
 enum class CancelResult {
@@ -37,13 +37,13 @@ enum class CancelResult {
 //   - does an add match?       O(1): compare with the best opposite level
 //   - each fill                O(1): unlink head, erase from orders_
 //   - cancel                   O(1) average: hash lookup + unlink
-//   - erase an emptied level   amortized O(1) via the stored iterator
-//   - rest at a new price      O(log L); at an existing price O(1) after the lookup
+//   - erase an emptied level   amortized O(1), O(log L) worst case; no search, via the stored iterator
+//   - rest an order            O(log L) to find or create its price level, then O(1) to append
 //
-// The book performs no I/O; all output goes to the EventSink.
 template <EventSink Sink>
 class OrderBook {
 public:
+    // `sink` must outlive the book. `expectedOrders` pre-sizes the order index to avoid rehashing.
     explicit OrderBook(Sink& sink, std::size_t expectedOrders = 0) : sink_(sink) {
         orders_.reserve(expectedOrders);
     }
@@ -51,8 +51,10 @@ public:
     OrderBook(const OrderBook&) = delete;
     OrderBook& operator=(const OrderBook&) = delete;
 
+    // Rejects invalid orders and live duplicate ids, matches against the opposite
+    // side, then rests any unfilled quantity.
     AddResult add(const AddOrderRequest& request) {
-        if (request.quantity == 0 || request.price <= Price{}) {
+        if (request.quantity == 0 || request.price == Price{}) {
             return AddResult::InvalidOrder;
         }
         if (orders_.contains(request.id)) {
@@ -66,6 +68,7 @@ public:
         return AddResult::Accepted;
     }
 
+    // Removes a live order. Nothing is sent to the sink.
     CancelResult cancel(OrderId id) {
         const auto it = orders_.find(id);
         if (it == orders_.end()) {
@@ -81,9 +84,11 @@ public:
     std::size_t levelCount(Side side) const noexcept { return levels(side).size(); }
     bool contains(OrderId id) const { return orders_.contains(id); }
 
+    // Highest bid, or nullopt if there are no bids.
     std::optional<Price> bestBid() const {
         return bids_.empty() ? std::nullopt : std::optional<Price>(std::prev(bids_.end())->first);
     }
+    // Lowest ask, or nullopt if there are no asks.
     std::optional<Price> bestAsk() const {
         return asks_.empty() ? std::nullopt : std::optional<Price>(asks_.begin()->first);
     }
@@ -137,6 +142,7 @@ public:
     }
 
 private:
+    // The price levels of one side.
     LevelMap& levels(Side side) noexcept { return side == Side::Buy ? bids_ : asks_; }
     const LevelMap& levels(Side side) const noexcept { return side == Side::Buy ? bids_ : asks_; }
 
@@ -179,6 +185,7 @@ private:
         return remaining;
     }
 
+    // Sends OrderFullyFilled if nothing remains, otherwise OrderPartiallyFilled.
     void reportFill(OrderId id, Quantity remaining) {
         if (remaining == 0) {
             sink_.onFullyFilled(id);
@@ -187,11 +194,19 @@ private:
         }
     }
 
+    // Stores the order in the index and appends it to the tail of its price level,
+    // creating the level if needed. If an allocation throws, the book is unchanged.
     void rest(const AddOrderRequest& request, Quantity remaining) {
-        LevelMap& sideLevels = levels(request.side);
-        const auto level = sideLevels.try_emplace(request.price).first;
+        const auto entry = orders_.try_emplace(request.id).first;
+        LevelMap::iterator level;
+        try {
+            level = levels(request.side).try_emplace(request.price).first;
+        } catch (...) {
+            orders_.erase(entry);  // don't leave an order that no level links to
+            throw;
+        }
 
-        Order& order = orders_.try_emplace(request.id).first->second;
+        Order& order = entry->second;
         order.id = request.id;
         order.side = request.side;
         order.price = request.price;

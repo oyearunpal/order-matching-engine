@@ -2,7 +2,7 @@
 #include <utility>
 #include <vector>
 
-#include "matching/order_book.hpp"
+#include "order_book.hpp"
 #include "recording_sink.hpp"
 #include "test_harness.hpp"
 
@@ -253,16 +253,16 @@ TEST(IdCanBeReusedOnceOrderIsGone) {
 TEST(InvalidOrdersAreRejected) {
     Fixture f;
     EXPECT_EQ(f.book.add({1, Side::Buy, 0, px("100")}), AddResult::InvalidOrder);
-    EXPECT_EQ(f.book.add({2, Side::Buy, 5, Price::fromCents(0)}), AddResult::InvalidOrder);
-    EXPECT_EQ(f.book.add({3, Side::Sell, 5, Price::fromCents(-100)}), AddResult::InvalidOrder);
+    EXPECT_EQ(f.book.add({2, Side::Buy, 5, Price::fromRaw(0)}), AddResult::InvalidOrder);
     EXPECT_EQ(f.book.orderCount(), std::size_t{0});
 }
 
 TEST(DecimalPricesMatchExactly) {
     Fixture f;
-    f.place(sell(1, 5, "100.01"));
-    EXPECT_TRUE(f.placeAndTake(buy(2, 5, "100")).empty());  // one cent short
-    EXPECT_EQ(f.placeAndTake(buy(3, 5, "100.01")), (std::vector<Event>{trade(5, px("100.01")), filled(3), filled(1)}));
+    f.place(sell(1, 5, "100.0001"));
+    EXPECT_TRUE(f.placeAndTake(buy(2, 5, "100")).empty());  // one raw unit (0.0001) short
+    EXPECT_EQ(f.placeAndTake(buy(3, 5, "100.0001")),
+              (std::vector<Event>{trade(5, px("100.0001")), filled(3), filled(1)}));
 }
 
 TEST(LargeQuantitiesDoNotOverflow) {
@@ -278,11 +278,11 @@ TEST(BookStaysConsistentThroughManyOperations) {
     OrderId id = 1;
     for (int round = 0; round < 50; ++round) {
         for (int i = 0; i < 20; ++i) {
-            const auto cents = std::int64_t{10000 + (i % 7) * 10};
-            f.place({id++, Side::Sell, static_cast<Quantity>(1 + i % 4), Price::fromCents(cents)});
-            f.place({id++, Side::Buy, static_cast<Quantity>(1 + i % 3), Price::fromCents(cents - 80)});
+            const auto raw = static_cast<Price::Raw>(1'000'000 + (i % 7) * 1000);  // 100.00 .. 100.60
+            f.place({id++, Side::Sell, static_cast<Quantity>(1 + i % 4), Price::fromRaw(raw)});
+            f.place({id++, Side::Buy, static_cast<Quantity>(1 + i % 3), Price::fromRaw(raw - 8000)});
         }
-        f.place({id++, Side::Buy, 25, Price::fromCents(10030)});  // sweeps several ask levels
+        f.place({id++, Side::Buy, 25, Price::fromRaw(1'003'000)});  // 100.30: sweeps several ask levels
         f.book.cancel(id - 5);
         f.book.cancel(id - 10);
         f.expectConsistent();

@@ -7,9 +7,9 @@
 #include <utility>
 #include <vector>
 
-#include "matching/event_sink.hpp"
-#include "matching/order_book.hpp"
-#include "matching/price.hpp"
+#include "event_sink.hpp"
+#include "order_book.hpp"
+#include "price.hpp"
 
 namespace test_support {
 

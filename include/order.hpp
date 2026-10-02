@@ -2,8 +2,8 @@
 
 #include <map>
 
-#include "matching/price.hpp"
-#include "matching/types.hpp"
+#include "price.hpp"
+#include "types.hpp"
 
 namespace matching {
 
@@ -19,10 +19,14 @@ struct Order;
 // not own its orders; OrderBook owns them (see order_book.hpp).
 class PriceLevel {
 public:
+    // True if no order rests at this price.
     bool empty() const noexcept { return head_ == nullptr; }
+    // Oldest order, or nullptr if empty.
     Order* front() const noexcept { return head_; }
 
+    // Appends an order at the tail (newest).
     void pushBack(Order& order) noexcept;
+    // Removes an order from anywhere in the queue and clears its links.
     void unlink(Order& order) noexcept;
 
 private:
@@ -47,6 +51,7 @@ struct Order {
     LevelMap::iterator level{};
 };
 
+// Links `order` after the current tail; it becomes the head if the level was empty.
 inline void PriceLevel::pushBack(Order& order) noexcept {
     order.prev = tail_;
     order.next = nullptr;
@@ -58,6 +63,7 @@ inline void PriceLevel::pushBack(Order& order) noexcept {
     tail_ = &order;
 }
 
+// Joins the order's neighbours to each other, updating head/tail when it was at an end.
 inline void PriceLevel::unlink(Order& order) noexcept {
     if (order.prev != nullptr) {
         order.prev->next = order.next;

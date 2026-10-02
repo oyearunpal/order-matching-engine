@@ -4,8 +4,9 @@
 #include <exception>
 #include <iostream>
 
-#include "matching/session.hpp"
+#include "session.hpp"
 
+// Unties the C++ streams from C stdio for speed, then runs one session on stdin/stdout/stderr.
 int main() {
     std::ios::sync_with_stdio(false);
     std::cin.tie(nullptr);

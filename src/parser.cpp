@@ -1,11 +1,13 @@
-#include "matching/parser.hpp"
+#include "parser.hpp"
 
 #include <algorithm>
 #include <array>
 #include <charconv>
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <system_error>
+#include <utility>
 
 namespace matching {
 namespace {
@@ -21,6 +23,8 @@ struct Fields {
     std::size_t count = 0;
 };
 
+// Splits a line on commas and trims each field. Keeps the first kMaxStoredFields
+// fields but counts all of them, so a wrong field count can be reported.
 Fields splitFields(std::string_view line) noexcept {
     Fields fields;
     std::size_t start = 0;
@@ -54,6 +58,7 @@ UintStatus parseUint(std::string_view field, std::uint64_t& value) noexcept {
     return UintStatus::Ok;
 }
 
+// Wraps a field in single quotes for an error message, escaping unsafe bytes.
 std::string quoted(std::string_view field) { return "'" + escapeForLog(field) + "'"; }
 
 // Parses a strictly positive integer field, or explains why it is not one.
@@ -76,12 +81,14 @@ std::optional<std::uint64_t> parsePositive(std::string_view name, std::string_vi
     return std::nullopt;
 }
 
+// Builds the error for a message with the wrong number of fields.
 std::string fieldCountError(std::string_view message, std::string_view layout, std::size_t expected,
                             std::size_t actual) {
     return std::string(message) + " expects " + std::to_string(expected) + " fields (" +
            std::string(layout) + "), got " + std::to_string(actual);
 }
 
+// Validates and converts the fields of an AddOrderRequest: orderid, side, quantity, price.
 ParsedLine parseAdd(const Fields& fields) {
     if (fields.count != kAddFieldCount) {
         return ParseError{fieldCountError("AddOrderRequest", "msgtype,orderid,side,quantity,price",
@@ -107,12 +114,13 @@ ParsedLine parseAdd(const Fields& fields) {
     const auto price = parsePrice(fields.values[4]);
     if (!price) {
         return ParseError{"invalid price " + quoted(fields.values[4]) +
-                          ": expected a positive number with at most 2 decimal places"};
+                          ": expected a positive number up to 429496.7295 with at most 4 decimal places"};
     }
 
     return AddOrderRequest{*id, sideField == "0" ? Side::Buy : Side::Sell, *quantity, *price};
 }
 
+// Validates and converts the fields of a CancelOrderRequest: orderid.
 ParsedLine parseCancel(const Fields& fields) {
     if (fields.count != kCancelFieldCount) {
         return ParseError{
@@ -129,6 +137,7 @@ ParsedLine parseCancel(const Fields& fields) {
 
 }  // namespace
 
+// Returns the view without surrounding whitespace, or an empty view if nothing else is left.
 std::string_view trim(std::string_view text) noexcept {
     constexpr std::string_view kWhitespace = " \t\r\n\v\f";
     const auto first = text.find_first_not_of(kWhitespace);
@@ -139,6 +148,8 @@ std::string_view trim(std::string_view text) noexcept {
     return text.substr(first, last - first + 1);
 }
 
+// Copies printable ASCII as is, writes every other byte (and the backslash) as \xNN,
+// and stops with "..." once the output reaches maxLength.
 std::string escapeForLog(std::string_view text, std::size_t maxLength) {
     constexpr char kHex[] = "0123456789abcdef";
     std::string out;
@@ -160,6 +171,7 @@ std::string escapeForLog(std::string_view text, std::size_t maxLength) {
     return out;
 }
 
+// Reads the message type from the first field, then hands the fields to that type's parser.
 ParsedLine parseLine(std::string_view line) {
     const Fields fields = splitFields(trim(line));
     const std::string_view typeField = fields.values[0];

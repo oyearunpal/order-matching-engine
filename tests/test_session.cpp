@@ -1,7 +1,7 @@
 #include <sstream>
 #include <string>
 
-#include "matching/session.hpp"
+#include "session.hpp"
 #include "test_harness.hpp"
 
 using matching::runSession;

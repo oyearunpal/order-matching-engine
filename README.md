@@ -3,8 +3,6 @@
 A single-instrument limit order book with price-time priority, written in C++20 with no third-party dependencies.
 It reads `AddOrderRequest` / `CancelOrderRequest` messages from stdin, matches them, and writes `TradeEvent`, `OrderFullyFilled` and `OrderPartiallyFilled` messages to stdout. Rejected input is reported on stderr and never stops processing.
 
-The original brief is in [ASSIGNMENT.md](ASSIGNMENT.md). The design discussion is in [PLAN.md](PLAN.md).
-
 ---
 
 ## Build and run
@@ -66,10 +64,11 @@ For every match the engine writes the `TradeEvent`, then the aggressive order's 
 
 **Assumptions and policies**
 
-- **Prices have at most 2 decimal places** (a tick of one cent). They are stored as integer cents, so there is no floating point anywhere.
-  - `1025`, `1025.5` and `1025.50` are accepted. Trailing zeros past 2 decimals (`1025.500`) are accepted because no precision is lost.
-  - Sub-cent prices such as `1025.001` are rejected.
-  - Output uses the shortest exact form: `1025`, `1025.5`, `1025.05`.
+- **Prices follow Nasdaq TotalView-ITCH 5.0's `Price(4)` format:** an unsigned 32-bit integer with 4 implied decimal places. The raw value `10250000` means `1025.0000`. There is no floating point anywhere.
+  - **Range:** `0.0001` to `429496.7295` (`UINT32_MAX / 10^4`). Higher prices are rejected.
+  - `1025`, `1025.5`, `1025.0001` are accepted. Trailing zeros past 4 decimals (`1025.50000`) are accepted because no precision is lost.
+  - Prices finer than 4 decimals, such as `1025.00001`, are rejected.
+  - Output uses the shortest exact form: `1025`, `1025.5`, `1025.005`.
 - Order ids and quantities are unsigned 64-bit integers and must be positive. Values that overflow are rejected.
 - **Duplicate ids are checked against live orders only.** An id can be reused once its order has filled or been cancelled. Remembering every id ever seen would cost memory without bound.
 - A cancel prints nothing on success, because the protocol has no cancel acknowledgement. A cancel for an unknown, filled or already-cancelled id is reported on stderr.
@@ -80,12 +79,12 @@ For every match the engine writes the `TradeEvent`, then the aggressive order's 
 
 ```
 error: line 6: Unknown message type: BADMESSAGE
-error: line 9: invalid price '1.005': expected a positive number with at most 2 decimal places
+error: line 9: invalid price '1.00005': expected a positive number up to 429496.7295 with at most 4 decimal places
 error: line 12: cancel for unknown order id 999
 error: line 17: line exceeds 1024 characters
 ```
 
-Non-printable bytes in messages are escaped as `\xNN`. Lines longer than 1024 characters are skipped without being buffered, so a huge line or a binary file cannot exhaust memory. A valid request is about 110 characters at most.
+Non-printable bytes in messages are escaped as `\xNN`. Lines longer than 1024 characters are skipped without being buffered, so a huge line or a binary file cannot exhaust memory. A valid request is under 60 characters.
 
 ---
 
@@ -102,7 +101,7 @@ Non-printable bytes in messages are escaped as `\xNN`. Lines longer than 1024 ch
                            errors (parse, duplicate id, unknown cancel) ─► stderr
 ```
 
-### Order book data structures (`include/matching/order_book.hpp`, `order.hpp`)
+### Order book data structures (`include/order_book.hpp`, `order.hpp`)
 
 ```
 orders_ : unordered_map<OrderId, Order>    ← owns every resting order (one allocation each)
@@ -133,7 +132,7 @@ PriceLevel 1025:  head ─► [id 5, qty 2] ⇄ [id 7, qty 5] ◄─ tail     (F
 
 ```
 add(order):
-  reject if quantity == 0, price <= 0, or the id is live
+  reject if quantity == 0, price == 0, or the id is live
   while order has quantity and the best opposite level crosses its limit:
       resting = oldest order at that level
       fill    = min(order.qty, resting.qty)          # trade at resting.price
@@ -155,32 +154,38 @@ L = number of price levels on one side.
 | **Does an `AddOrderRequest` match?** | **O(1)** | Compare the limit with the best opposite level: `asks_.begin()` or `prev(bids_.end())`. Both are constant time on `std::map`. A non-matching add pays nothing else for matching. |
 | **Removing a filled order** | **O(1)**, plus amortized O(1) for its level | Pop the head of the FIFO, then one hash erase. If that empties the level, it is erased through the stored iterator. That is amortized constant per the standard, though a single red-black-tree delete can touch O(log L) nodes. |
 | **Removing a cancelled order** | **O(1)** on average, plus amortized O(1) for its level | One hash lookup, one O(1) unlink from anywhere in the FIFO, one hash erase. An emptied level is erased through the stored iterator, as above. |
-| Resting a new order | O(log L) at a new price level, O(1) at an existing one after the lookup | `try_emplace` on the level map, then a tail append. |
+| Resting a new order | O(log L) to find or create its price level, then O(1) to append | `try_emplace` on the level map always searches the tree. A new price also allocates and inserts a tree node. The tail append is O(1). |
 
 An aggressive order that generates k fills costs O(k): each fill is the O(1) removal described above. No operation ever scans the book.
 
 ### Measured
 
-`./build/bench --orders 1000000` in a Release build with GCC 16 on an AMD Ryzen 5 3600, with 1000 price levels per side and `NullSink` (no output cost). Latency samples include about 20 ns of clock overhead.
+`./build/bench --orders 1000000` in a Release build with GCC 16 on an AMD Ryzen 5 3600, with 1000 price levels per side and `NullSink` (no output cost). These figures are typical of three runs. Latency samples include about 20 ns of clock overhead.
 
 | Workload | Mean | p50 | p90 | p99 | p99.9 | Throughput |
 |---|---|---|---|---|---|---|
-| Passive add (no match, 1M orders) | 140 ns | 100 ns | 130 ns | 1.6 µs | 3.2 µs | 7.1 M/s |
-| Cancel (1M orders, random order) | 250 ns | 220 ns | 360 ns | 610 ns | 720 ns | 4.0 M/s |
-| Aggressive add (about 3.5 fills each) | 440 ns | 400 ns | 770 ns | 1.1 µs | 1.5 µs | 2.3 M/s |
-| Mixed random flow (book stays small) | 52 ns | | | | | 19 M/s |
-| End-to-end: parse, match and CSV output | 270 ns | | | | | 3.7 M lines/s |
+| Passive add (no match, 1M orders) | 140 ns | 110 ns | 130 ns | 1.6 µs | 3.2 µs | 7.1 M/s |
+| Cancel (1M orders, random order) | 240 ns | 220 ns | 330 ns | 600 ns | 720 ns | 4.1 M/s |
+| Aggressive add (about 3.5 fills each) | 435 ns | 400 ns | 760 ns | 1.2 µs | 1.5 µs | 2.3 M/s |
+| Mixed random flow (book stays small) | 53 ns | | | | | 19 M/s |
+| End-to-end: parse, match and CSV output | 280 ns | | | | | 3.6 M lines/s |
 
 **What the numbers show:**
 - **Cache misses dominate, not instruction count.**
   - The mixed flow keeps the book small enough to stay in cache and runs at about 50 ns per request.
-  - With 1M resting orders, each cancel touches about four unrelated cache lines: the hash bucket, the order node, and the neighbouring orders it relinks. That costs about 250 ns.
+  - With 1M resting orders, each cancel touches about four unrelated cache lines: the hash bucket, the order node, and the neighbouring orders it relinks. That costs about 240 ns.
 - **The passive-add tail (p99 at 1.6 µs) comes from allocation**, not matching: the map node and new memory pages being touched for the first time.
 
 The production enhancements below target both of these.
 
 ### Trade-offs
 
+- **32-bit prices (Nasdaq ITCH style) vs. 64-bit.**
+  - With 32-bit prices `Order` is 48 bytes and its hash-map entry 64 bytes. With 64-bit prices they would be 56 and 72 bytes, about 8 MB more per million resting orders.
+  - The cost is the 429,496.7295 ceiling.
+  - The engine only compares prices and never does arithmetic on them, so the narrower type changes no latency measurably.
+  - Widening later is contained: only `Price`, the parser's range check, and the price tests depend on the width.
+  - CME takes the other route: `int64` prices with 9 implied decimals.
 - **`std::map` for price levels vs. a flat array indexed by price.** The map handles any price with no configuration and keeps the code small. The cost is a node allocation per new level and pointer-chasing.
 - **Same map type for both sides.** It lets `Order` store a level iterator, so an emptied level is never searched for by price. The cost is the `prev(end())` asymmetry on the bid side.
 - **Template sink vs. a virtual interface.** Event calls are inlined, at the price of `OrderBook` being a header-only template. Swapping the sink at runtime is never needed.
@@ -200,7 +205,7 @@ What I would change for a production engine, roughly in order of impact:
    - **Lazy cancellation:** a cancel looks up the order's `{level, slot}` handle in O(1) and marks the slot dead. Matching skips dead slots, and a level compacts itself once dead slots pass a threshold (about 50%). The catch is that stale slots linger until the next compaction.
    - **Hot/cold split:** the matching loop only touches id and quantity, so only those go in the slot. Side, price and any metadata live elsewhere.
    - **Ownership moves into the level**, the reverse of this version: the index maps an id to a slot handle. If linked structures remain anywhere, they use 32-bit indices instead of pointers.
-2. **A price-indexed array of levels instead of `std::map`.** Prices are integer cents, so a level is `levels[price - base]` within a band around the market. A bitmap or summary words find the next non-empty level. Insert, best-price lookup and level removal all become O(1) with no allocation.
+2. **A price-indexed array of levels instead of `std::map`.** Prices are integers on a fixed 0.0001 grid, so a level is `levels[(price - base) / tick]` within a band around the market. A bitmap or summary words find the next non-empty level. Insert, best-price lookup and level removal all become O(1) with no allocation.
 3. **An open-addressing hash map plus an order pool.** A flat hash map such as Robin Hood or Swiss-table is much faster than node-based buckets, but it moves entries when it grows. So orders move to a preallocated pool addressed by 32-bit indices, sized from configuration and possibly backed by huge pages. That removes the per-order heap allocation and the allocation tail visible in the passive-add p99.
 4. **Preallocate everything at startup**, sized from configuration, so the steady state never calls `malloc`.
 5. **Binary protocol and zero-copy parsing.** Replace CSV with fixed-layout binary messages read straight from the network buffer. Batch output writes instead of going through `iostream`.
@@ -215,7 +220,7 @@ What I would change for a production engine, roughly in order of impact:
 
 | Suite | What it covers |
 |---|---|
-| `tests/test_price.cpp` | Parsing and formatting, the 2-decimal limit, overflow at the int64 boundary, round-trips |
+| `tests/test_price.cpp` | Parsing and formatting, the 4-decimal limit, the `429496.7295` uint32 ceiling, round-trips |
 | `tests/test_parser.cpp` | Every accept/reject path: field counts, signs, overflow, bad side, zero quantity, whitespace, `\r`, binary bytes |
 | `tests/test_order_book.cpp` | The assignment example; FIFO and price priority; multi-level sweeps; resting remainders; exact fills; sell-side aggression; cancel at the head, middle and tail; emptied levels; duplicate and unknown ids; uint64 quantities; invariant checks |
 | `tests/test_session.cpp` | Full pipeline on string streams: line numbers in errors, blank lines, CRLF, a final line without a newline, over-long and exactly-max-length lines, binary garbage |
@@ -229,9 +234,9 @@ The randomized flow comes from `tools/order_flow.hpp`, which `gen_orders` and `b
 ## Project layout
 
 ```
-include/matching/
+include/
   types.hpp              OrderId, Quantity, Side, MessageType
-  price.hpp              Price (integer cents), parsePrice, writePrice
+  price.hpp              Price (uint32, 4 implied decimals), parsePrice, writePrice
   messages.hpp           AddOrderRequest, CancelOrderRequest, ParseError
   parser.hpp             parseLine, trim, escapeForLog
   event_sink.hpp         EventSink concept, NullSink

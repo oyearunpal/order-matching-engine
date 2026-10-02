@@ -1,7 +1,7 @@
 #include <string>
 #include <variant>
 
-#include "matching/parser.hpp"
+#include "parser.hpp"
 #include "test_harness.hpp"
 
 using namespace matching;
@@ -28,15 +28,15 @@ TEST(ParserReadsAddOrder) {
     EXPECT_EQ(add->id, OrderId{123});
     EXPECT_TRUE(add->side == Side::Buy);
     EXPECT_EQ(add->quantity, Quantity{9});
-    EXPECT_EQ(add->price, Price::fromCents(100000));
+    EXPECT_EQ(add->price, Price::fromRaw(10'000'000));
 }
 
 TEST(ParserReadsSellWithDecimalPrice) {
-    const ParsedLine parsed = parseLine("0,7,1,5,1025.25");
+    const ParsedLine parsed = parseLine("0,7,1,5,1025.2575");
     const auto* add = std::get_if<AddOrderRequest>(&parsed);
     ASSERT_TRUE(add != nullptr);
     EXPECT_TRUE(add->side == Side::Sell);
-    EXPECT_EQ(add->price, Price::fromCents(102525));
+    EXPECT_EQ(add->price, Price::fromRaw(10'252'575));
 }
 
 TEST(ParserReadsCancel) {
@@ -94,8 +94,9 @@ TEST(ParserRejectsBadQuantity) {
 }
 
 TEST(ParserRejectsBadPrice) {
-    EXPECT_EQ(errorOf("0,1,0,1,1.005"),
-              std::string("invalid price '1.005': expected a positive number with at most 2 decimal places"));
+    EXPECT_EQ(errorOf("0,1,0,1,1.00005"),
+              std::string("invalid price '1.00005': expected a positive number up to 429496.7295 with at most 4 decimal places"));
+    EXPECT_TRUE(isError("0,1,0,1,429496.7296"));  // above the uint32 ceiling
     EXPECT_TRUE(isError("0,1,0,1,0"));
     EXPECT_TRUE(isError("0,1,0,1,-10"));
     EXPECT_TRUE(isError("0,1,0,1,abc"));
@@ -106,7 +107,7 @@ TEST(ParserEscapesBinaryInErrors) {
     const std::string line("\x01\xff" "abc", 5);
     EXPECT_EQ(errorOf(line), std::string("Unknown message type: \\x01\\xffabc"));
     EXPECT_EQ(errorOf(std::string("0,1,0,1,1\0", 10)),
-              std::string("invalid price '1\\x00': expected a positive number with at most 2 decimal places"));
+              std::string("invalid price '1\\x00': expected a positive number up to 429496.7295 with at most 4 decimal places"));
 }
 
 TEST(EscapeForLogTruncatesLongInput) {

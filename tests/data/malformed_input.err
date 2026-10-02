@@ -5,8 +5,8 @@ error: line 6: invalid orderid 'abc': expected a positive integer
 error: line 7: invalid side '5': expected 0 (buy) or 1 (sell)
 error: line 8: invalid quantity '0': expected a positive integer
 error: line 9: invalid quantity '-5': expected a positive integer
-error: line 10: invalid price 'abc': expected a positive number with at most 2 decimal places
-error: line 11: invalid price '0': expected a positive number with at most 2 decimal places
+error: line 10: invalid price 'abc': expected a positive number up to 429496.7295 with at most 4 decimal places
+error: line 11: invalid price '0': expected a positive number up to 429496.7295 with at most 4 decimal places
 error: line 12: orderid '99999999999999999999' is out of range
 error: line 13: invalid orderid '': expected a positive integer
 error: line 14: Unknown message type: 7

@@ -18,7 +18,7 @@ Decisions made:
 ```
 CMakeLists.txt            # targets: matching_lib (static), matching_engine (app), unit_tests, gen_orders, bench
 README.md                 # build/run, design, performance analysis, trade-offs, production enhancements
-include/matching/
+include/
   types.hpp               # OrderId (uint64), Quantity (uint64), Side enum
   price.hpp               # fixed-point Price: parse/format
   messages.hpp            # AddOrderRequest, CancelOrderRequest, ParseError (std::variant)
@@ -42,11 +42,11 @@ tools/
 ```
 
 ## Core design
-**Price**: fixed-point `int64_t` holding **cents** (scale 100).
-- **Stated assumption (README):** prices have at most 2 decimal places, i.e. the tick size is one cent.
-- Parsing is exact (no floating point). It accepts `1025`, `1025.5` and `1025.50`, and rejects values ≤ 0, more than 2 decimal places (`1025.001`), overflow, and junk.
-- Formatting prints the shortest form: `1025` stays `1025`, `1025.50` becomes `1025.5`, `1025.05` stays `1025.05`. This keeps output byte-identical to the spec example.
-- Integer cents also make the tick-indexed price array in the production section realistic, because a price maps directly to an array slot.
+**Price**: fixed-point, following Nasdaq ITCH 5.0's `Price(4)`: a `uint32_t` with **4 implied decimal places** (scale 10,000).
+- **Stated assumption (README):** prices are between 0.0001 and 429,496.7295 with at most 4 decimal places.
+- Parsing is exact (no floating point). It accepts `1025`, `1025.5` and `1025.0001`, and rejects values ≤ 0, more than 4 decimal places (`1025.00001`), values above the uint32 ceiling, and junk.
+- Formatting prints the shortest form: `1025` stays `1025`, `1025.50` becomes `1025.5`, `1025.0050` becomes `1025.005`. This keeps output byte-identical to the spec example.
+- Integer prices on a fixed grid also make the tick-indexed price array in the production section realistic, because a price maps directly to an array slot.
 
 **Parser**: works on `std::string_view` and parses integers with `std::from_chars`.
 - It tolerates trailing `\r` and whitespace around fields.
@@ -104,7 +104,7 @@ This reproduces the spec example exactly. The aggressive partial message (`4,100
 
 ## Tests
 - **Unit tests** (built-in harness):
-  - price parse/format round-trips and rejections, including the 2-decimal limit (`1.005` is rejected)
+  - price parse/format round-trips and rejections, including the 4-decimal limit (`1.00005` is rejected) and the uint32 ceiling
   - parser accept/reject cases: wrong field count, non-numeric fields, negative numbers, bad side, zero quantity, overflow, empty fields, `\r`
   - OrderBook cases:
     - the spec example
@@ -155,7 +155,7 @@ This reproduces the spec example exactly. The aggressive partial message (`4,100
     - **Hot/cold split of `Order`.** The matching loop touches only id and qty, so those stay in the queue slot. Side, price and any future metadata live in separate cold storage.
     - **Ownership moves into the level.** Once a level's storage is contiguous, the level should own the hot data, since walking it in order is the whole point. The index maps an id to a `{level, slot}` handle, the reverse of the take-home's choice.
     - **32-bit indices instead of pointers**, if linked structures remain anywhere. Nodes get smaller.
-  - a tick-indexed array of levels (prices are integer cents), with a bitmap or summary words to find the next non-empty level, replacing `std::map`
+  - a tick-indexed array of levels (prices are integers on a fixed grid), with a bitmap or summary words to find the next non-empty level, replacing `std::map`
   - **An open-addressing hash map plus an order pool.** A flat-array hash map is faster, but it moves entries when it grows, so it can no longer own orders. Cold order data then moves to a preallocated pool (sized from config, possibly in huge pages, addressed by 32-bit indices), which removes the per-order heap allocation the take-home still pays.
   - a binary protocol and zero-copy parsing
   - preallocation sized from config
@@ -178,6 +178,6 @@ This reproduces the spec example exactly. The aggressive partial message (`4,100
 - **New `session.hpp` / `session.cpp`.** The read-parse-dispatch-log loop moved out of `main.cpp` into `runSession(istream&, ostream&, ostream&)`, so `tests/test_session.cpp` can test the full pipeline on string streams. `main.cpp` is now about 10 lines.
 - **Line reading is capped at 1024 characters.** Longer lines are skipped without being buffered, so huge or binary input can't exhaust memory.
 - **`AddResult::InvalidOrder` was added** (zero quantity or non-positive price), so the book's API rejects bad input on its own and doesn't rely on the parser.
-- **Trailing zeros past 2 decimals are accepted**, e.g. `1.500`. Only real sub-cent precision is rejected.
+- **Trailing zeros past 4 decimals are accepted**, e.g. `1.50000`. Only precision finer than 0.0001 is rejected.
 - **The e2e tests also compare stderr** when a `<case>.err` file exists.
 - **`tools/order_flow.hpp` is one seeded generator shared** by `gen_orders`, `bench` and the randomized test.

@@ -5,7 +5,7 @@
 #include <iostream>
 #include <variant>
 
-#include "matching/order_book.hpp"
+#include "order_book.hpp"
 #include "order_flow.hpp"
 #include "recording_sink.hpp"
 #include "reference_book.hpp"
@@ -64,7 +64,7 @@ TEST(RandomizedMatchesReferenceOnWideBook) {
         order_flow::Config config;
         config.seed = seed;
         config.halfRangeTicks = 60;
-        config.tickCents = 1;
+        config.tickRaw = 1;  // 0.0001: exercises 4-decimal prices
         config.maxQuantity = 200;
         if (!runScenario(config, 400)) return;
     }

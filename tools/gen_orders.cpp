@@ -83,7 +83,7 @@ std::string garbageLine(std::mt19937_64& rng) {
         case 3: return "0,abc,0,5,100";                            // non-numeric id
         case 4: return "0,7,3,5,100";                              // bad side
         case 5: return "0,7,0,-5,100";                             // negative quantity
-        case 6: return "0,7,0,5,1.005";                            // sub-cent price
+        case 6: return "0,7,0,5,1.00005";                          // finer than 4 decimals
         case 7: return "0,99999999999999999999999,0,5,100";        // id overflow
         case 8: return "9," + std::to_string(pick(1000));          // unknown type
         case 9: return std::string(2000 + pick(3000), '7');        // over-long line

@@ -4,7 +4,7 @@
 #include <string>
 #include <string_view>
 
-#include "matching/messages.hpp"
+#include "messages.hpp"
 
 namespace matching {
 

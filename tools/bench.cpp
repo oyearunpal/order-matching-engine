@@ -25,9 +25,9 @@
 #include <string_view>
 #include <vector>
 
-#include "matching/event_sink.hpp"
-#include "matching/order_book.hpp"
-#include "matching/session.hpp"
+#include "event_sink.hpp"
+#include "order_book.hpp"
+#include "session.hpp"
 #include "order_flow.hpp"
 
 using namespace matching;
@@ -35,7 +35,7 @@ using Clock = std::chrono::steady_clock;
 
 namespace {
 
-constexpr std::int64_t kMidCents = 100'00;
+constexpr std::int64_t kMidRaw = 100'0000;  // 100.0000
 constexpr std::int64_t kLevelsPerSide = 1000;
 
 struct Options {
@@ -115,8 +115,8 @@ std::vector<AddOrderRequest> passiveOrders(std::size_t count, std::mt19937_64& r
     for (std::size_t i = 0; i < count; ++i) {
         const Side side = i % 2 == 0 ? Side::Buy : Side::Sell;
         const std::int64_t offset = level(rng);
-        const std::int64_t cents = side == Side::Buy ? kMidCents - offset : kMidCents + offset;
-        orders.push_back({i + 1, side, quantity(rng), Price::fromCents(cents)});
+        const std::int64_t raw = side == Side::Buy ? kMidRaw - offset : kMidRaw + offset;
+        orders.push_back({i + 1, side, quantity(rng), Price::fromRaw(static_cast<Price::Raw>(raw))});
     }
     return orders;
 }
@@ -165,8 +165,9 @@ int main(int argc, char** argv) {
         samples.reserve(aggressors);
         for (std::size_t i = 0; i < aggressors; ++i) {
             const Side side = i % 2 == 0 ? Side::Buy : Side::Sell;
-            const std::int64_t limit = side == Side::Buy ? kMidCents + kLevelsPerSide : kMidCents - kLevelsPerSide;
-            const AddOrderRequest order{options.orders + i + 1, side, quantity(rng), Price::fromCents(limit)};
+            const std::int64_t limit = side == Side::Buy ? kMidRaw + kLevelsPerSide : kMidRaw - kLevelsPerSide;
+            const AddOrderRequest order{options.orders + i + 1, side, quantity(rng),
+                                        Price::fromRaw(static_cast<Price::Raw>(limit))};
             samples.push_back(timeOne([&] { book.add(order); }));
         }
         report("aggressive add", std::move(samples));

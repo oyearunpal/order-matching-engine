@@ -12,7 +12,7 @@
 #include <variant>
 #include <vector>
 
-#include "matching/messages.hpp"
+#include "messages.hpp"
 
 namespace order_flow {
 
@@ -27,8 +27,8 @@ using Request = std::variant<AddOrderRequest, CancelOrderRequest>;
 
 struct Config {
     std::uint64_t seed = 1;
-    std::int64_t midCents = 100'00;   // 100.00
-    std::int64_t tickCents = 5;       // prices are mid +/- k * tick
+    std::int64_t midRaw = 100'0000;   // 100.0000 (raw Price units, 4 decimals)
+    std::int64_t tickRaw = 500;       // 0.05: prices are mid +/- k * tick
     std::int64_t halfRangeTicks = 20; // k in [-halfRangeTicks, +halfRangeTicks]
     Quantity maxQuantity = 100;
     double cancelRatio = 0.3;          // share of requests that are cancels
@@ -64,8 +64,8 @@ private:
         }
         const Side side = chance(0.5) ? Side::Buy : Side::Sell;
         const std::int64_t offset = uniform<std::int64_t>(-config_.halfRangeTicks, config_.halfRangeTicks);
-        const std::int64_t cents = std::max<std::int64_t>(1, config_.midCents + offset * config_.tickCents);
-        return {id, side, uniform<Quantity>(1, config_.maxQuantity), Price::fromCents(cents)};
+        const std::int64_t raw = std::clamp<std::int64_t>(config_.midRaw + offset * config_.tickRaw, 1, Price::kMaxRaw);
+        return {id, side, uniform<Quantity>(1, config_.maxQuantity), Price::fromRaw(static_cast<Price::Raw>(raw))};
     }
 
     CancelOrderRequest nextCancel() {

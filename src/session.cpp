@@ -1,21 +1,22 @@
-#include "matching/session.hpp"
+#include "session.hpp"
 
 #include <array>
 #include <exception>
 #include <istream>
 #include <limits>
 #include <ostream>
+#include <string>
 #include <string_view>
 #include <variant>
 
-#include "matching/csv_event_writer.hpp"
-#include "matching/order_book.hpp"
-#include "matching/parser.hpp"
+#include "csv_event_writer.hpp"
+#include "order_book.hpp"
+#include "parser.hpp"
 
 namespace matching {
 namespace {
 
-// A valid request is at most ~110 characters; anything far longer is rejected
+// A valid request is under 60 characters; anything far longer is rejected
 // without buffering it, so a huge line cannot exhaust memory.
 constexpr std::size_t kMaxLineLength = 1024;
 
@@ -48,10 +49,13 @@ ReadStatus readLine(std::istream& in, std::array<char, kMaxLineLength + 1>& buff
     return ReadStatus::Line;
 }
 
+// One engine run: an order book wired to a CSV writer, plus line-level error reporting.
 class Session {
 public:
+    // Connects the CSV writer to `out` and gives the book a pre-sized order index.
     Session(std::ostream& out, std::ostream& err) : writer_(out), book_(writer_, kExpectedOrders), err_(err) {}
 
+    // Skips blank lines; otherwise parses the line and calls the handle() overload for the result.
     void process(std::string_view rawLine) {
         if (trim(rawLine).empty()) {
             return;
@@ -59,14 +63,17 @@ public:
         std::visit([this](const auto& parsed) { handle(parsed); }, parseLine(rawLine));
     }
 
+    // Writes one diagnostic for the current line to `err` and counts it.
     void reportError(std::string_view message) {
         ++stats_.errors;
         err_ << "error: line " << stats_.lines << ": " << message << '\n';
     }
 
+    // Counters for the session so far.
     SessionStats& stats() noexcept { return stats_; }
 
 private:
+    // Applies an add to the book; reports a duplicate live id or an invalid order.
     void handle(const AddOrderRequest& request) {
         switch (book_.add(request)) {
             case AddResult::Accepted:
@@ -81,6 +88,7 @@ private:
         }
     }
 
+    // Applies a cancel to the book; reports an id that is not live.
     void handle(const CancelOrderRequest& request) {
         switch (book_.cancel(request.id)) {
             case CancelResult::Cancelled:
@@ -92,6 +100,7 @@ private:
         }
     }
 
+    // Reports a line the parser rejected.
     void handle(const ParseError& error) { reportError(error.message); }
 
     CsvEventWriter writer_;
@@ -102,6 +111,8 @@ private:
 
 }  // namespace
 
+// Reads lines until EOF and processes each one inside a try/catch, so no line can end the run.
+// Flushes `out` whenever no more input is buffered.
 SessionStats runSession(std::istream& in, std::ostream& out, std::ostream& err) {
     Session session(out, err);
     std::array<char, kMaxLineLength + 1> buffer{};

@@ -1,1 +1,2 @@
-error: line 7: invalid price '100.001': expected a positive number with at most 2 decimal places
+error: line 7: invalid price '100.00001': expected a positive number up to 429496.7295 with at most 4 decimal places
+error: line 8: invalid price '500000': expected a positive number up to 429496.7295 with at most 4 decimal places

@@ -5,9 +5,9 @@
 #include <cstdint>
 #include <vector>
 
-#include "matching/event_sink.hpp"
-#include "matching/messages.hpp"
-#include "matching/order_book.hpp"
+#include "event_sink.hpp"
+#include "messages.hpp"
+#include "order_book.hpp"
 
 namespace test_support {
 
@@ -25,7 +25,7 @@ public:
     explicit ReferenceBook(Sink& sink) : sink_(sink) {}
 
     AddResult add(const AddOrderRequest& request) {
-        if (request.quantity == 0 || request.price <= Price{}) {
+        if (request.quantity == 0 || request.price == Price{}) {
             return AddResult::InvalidOrder;
         }
         if (find(request.id) != orders_.end()) {
